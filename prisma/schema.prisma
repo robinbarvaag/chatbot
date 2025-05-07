@@ -19,6 +19,8 @@ model User {
   image         String?
   accounts      Account[]
   sessions      Session[]
+  conversations Conversation[]
+  messages      Message[]
 }
 
 model Account {
@@ -54,3 +56,24 @@ model VerificationToken {
 
   @@unique([identifier, token])
 }
+
+model Conversation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  title     String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  content        String
+  role           String   // 'user', 'assistant', 'system'
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+

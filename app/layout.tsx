@@ -1,16 +1,52 @@
-import "../globals.css";
+import "../globals.css"
 import type { ReactNode } from "react";
-import Header from "@/components/Header";
+import { ThemeProvider } from "@/components/ui/theme-provider";
+import { ActiveThemeProvider } from "@/components/ui/active-theme";
+import { cookies } from "next/headers";
+import { cn } from "@/lib/utils";
+import { fontVariables } from "@/lib/fonts"
+import { Toaster } from "@/components/ui/sonner";
 
-export default function RootLayout({ children }: { children: ReactNode }) {
-  // Brukerhenting via NextAuth kommer senere
+const META_THEME_COLORS = {
+  light: "#ffffff",
+  dark: "#09090b",
+}
+
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const cookieStore = await cookies()
+  const activeThemeValue = cookieStore.get("active_theme")?.value
+  const isScaled = activeThemeValue?.endsWith("-scaled")
   return (
-    <html lang="no">
-      <body className="min-h-screen bg-background text-foreground">
-        <Header />
-        <main className="mx-auto w-full py-8 px-4">
-          {children}
-        </main>
+    <html suppressHydrationWarning lang="no">
+       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                if (localStorage.theme === 'dark' || ((!('theme' in localStorage) || localStorage.theme === 'system') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                  document.querySelector('meta[name="theme-color"]').setAttribute('content', '${META_THEME_COLORS.dark}')
+                }
+              } catch (_) {}
+            `,
+          }}
+        />
+      </head>
+      <body className={cn(
+          "bg-background overscroll-none font-sans antialiased",
+          activeThemeValue ? `theme-${activeThemeValue}` : "",
+          isScaled ? "theme-scaled" : "",
+          fontVariables
+        )}>
+        <ThemeProvider attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+          enableColorScheme>
+          <ActiveThemeProvider initialTheme={activeThemeValue} >
+           {children}
+           <Toaster />
+          </ActiveThemeProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

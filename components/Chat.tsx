@@ -4,12 +4,30 @@ import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import { AIResponse } from '@/components/ui/kibo-ui/ai/response';
 
+import { useContext, useEffect } from 'react';
+import { ConversationContext } from '@/components/ui/app-sidebar';
+
 export default function Chat() {
   type ChatMessage = { role: 'user' | 'assistant' | 'system', content: string, articles?: any[] };
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }
   ]);
   const [loading, setLoading] = useState(false);
+  const { conversationId, setConversationId } = useContext(ConversationContext);
+
+  // Hent meldinger når conversationId endres
+  useEffect(() => {
+    if (conversationId) {
+      setLoading(true);
+      fetch(`/api/messages?conversationId=${conversationId}`)
+        .then(res => res.ok ? res.json() : [])
+        .then(msgs => setMessages(msgs.length ? msgs : [{ role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }]))
+        .finally(() => setLoading(false));
+    } else {
+      setMessages([{ role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
 
   async function sendMessage(message: string) {
     setMessages(msgs => [...msgs, { role: 'user', content: message }]);
@@ -20,7 +38,7 @@ export default function Chat() {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: newMessages })
+      body: JSON.stringify({ messages: newMessages, conversationId })
     });
     if (!res.body) {
       setMessages(msgs => [...msgs, { role: 'assistant', content: 'Ingen svar fra AI.' }]);
@@ -38,6 +56,7 @@ export default function Chat() {
       assistantMsgIdx = msgs.length;
       return [...msgs, { role: 'assistant', content: '' }];
     });
+    let newConvIdLocal: string | null = null;
     while (!done) {
       const { value, done: doneReading } = await reader.read();
       done = doneReading;
@@ -63,9 +82,41 @@ export default function Chat() {
             setMessages(msgs => msgs.map((m, i) =>
               i === assistantMsgIdx ? { ...m, content: aiContent } : m
             ));
+          } else if (eventType === 'conversationId') {
+            try {
+              const newConvId = JSON.parse(dataRaw);
+              if (newConvId && newConvId !== conversationId) setConversationId(newConvId);
+              newConvIdLocal = newConvId;
+            } catch {}
           }
         }
       }
+    }
+
+    console.log("conversationId", conversationId)
+    console.log("aiContent", aiContent)
+    // Etter at hele AI-svaret er ferdig, lagre det i databasen
+    const convIdToSave = newConvIdLocal || conversationId;
+    console.log("conversationId brukt for lagring:", convIdToSave);
+    if (convIdToSave && aiContent.trim()) {
+      console.log("PRØVER Å LAGRE AI-SVAR", { conversationId: convIdToSave, aiContent });
+      try {
+        const saveRes = await fetch('/api/messages/save-assistant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: convIdToSave, content: aiContent })
+        });
+        const saveResJson = await saveRes.json();
+        console.log("RESULTAT FRA LAGRING", saveRes.status, saveResJson);
+      } catch (err) {
+        console.error("FEIL VED LAGRING AV AI-SVAR", err);
+      }
+      // Hent meldinger på nytt fra backend for å sikre at frontend og database er synkronisert
+      // const res = await fetch(`/api/messages?conversationId=${convIdToSave}`);
+      // if (res.ok) {
+      //   const msgs = await res.json();
+      //   setMessages(msgs.length ? msgs : [{ role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }]);
+      // }
     }
     setLoading(false);
   }

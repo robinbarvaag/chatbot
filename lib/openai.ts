@@ -125,21 +125,15 @@ export async function chatWithOpenAI(messages: { role: string, content: string }
 
   const initialMessage = initialResponse.choices[0].message;
 
-  console.log("initialMessage", initialMessage)
-
-  // 2. Hvis OpenAI vil kalle funksjonen vår
   if (initialMessage.tool_calls && initialMessage.tool_calls.length > 0) {
     const toolCall = initialMessage.tool_calls[0];
     
     if (toolCall.function && toolCall.function.name === "getOrderCount") {
-      // Parse argumentene
       const args = JSON.parse(toolCall.function.arguments);
       const userId = args.userId || "dummy";
       
-      // Hent data
       const orderData = getOrderCount(userId);
 
-      // 3. Send funksjonssvaret tilbake til OpenAI for naturlig språk
       const finalMessages = [
         ...formattedMessages,
         initialMessage,
@@ -150,14 +144,12 @@ export async function chatWithOpenAI(messages: { role: string, content: string }
         }
       ];
 
-      // Stream responsen
       const response = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: finalMessages,
         stream: true
       });
 
-      // Returner ReadableStream for bruk i Next.js API route
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
@@ -175,14 +167,10 @@ export async function chatWithOpenAI(messages: { role: string, content: string }
     }
 
     if (toolCall.function && toolCall.function.name === "getOrderTotal") {
-      // Parse argumentene
       const args = JSON.parse(toolCall.function.arguments);
       const orderId = args.orderId || "dummy";
       
-      // Hent data
       const orderData = getOrderTotal(orderId);
-
-      // 3. Send funksjonssvaret tilbake til OpenAI for naturlig språk
       const finalMessages = [
         ...formattedMessages,
         initialMessage,
@@ -193,7 +181,6 @@ export async function chatWithOpenAI(messages: { role: string, content: string }
         }
       ];
 
-      // Stream responsen
       const response = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: finalMessages,
@@ -218,14 +205,10 @@ export async function chatWithOpenAI(messages: { role: string, content: string }
     }
 
     if (toolCall.function && toolCall.function.name === "getOrderDetails") {
-      // Parse argumentene
       const args = JSON.parse(toolCall.function.arguments);
       const orderId = args.orderId || "dummy";
       
-      // Hent data
       const orderData = getOrderDetails(orderId);
-
-      // 3. Send funksjonssvaret tilbake til OpenAI for naturlig språk
       const finalMessages = [
         ...formattedMessages,
         initialMessage,
@@ -236,14 +219,12 @@ export async function chatWithOpenAI(messages: { role: string, content: string }
         }
       ];
 
-      // Stream responsen
       const response = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: finalMessages,
         stream: true
       });
 
-      // Returner ReadableStream for bruk i Next.js API route
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
@@ -262,15 +243,12 @@ export async function chatWithOpenAI(messages: { role: string, content: string }
 
   }
 
-  // 4. Hvis ikke tool_calls, svar direkte med streaming
-  // Start stream direkte fra første respons (siden vi allerede har gjort et kall)
   const response = await openai.chat.completions.create({
     model: 'gpt-3.5-turbo',
     messages: formattedMessages,
     stream: true
   });
 
-  // Returner ReadableStream for bruk i Next.js API route
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {

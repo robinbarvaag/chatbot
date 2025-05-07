@@ -1,13 +1,64 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { chatWithOpenAI, getEmbedding } from '../../../lib/openai';
 import { queryPinecone } from '../../../lib/pinecone';
 import { sanityClient } from '../../../sanity/client';
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/[...nextauth]/route";
+import { prisma } from '@/lib/prisma';
 
 export async function POST(req: NextRequest) {
-  const { messages } = await req.json();
+  const body = await req.json();
+  const { messages, conversationId: clientConversationId } = body;
+
+  // Hent bruker fra session
+  const session = await getServerSession(authOptions);
+  const userEmail = session?.user?.email;
+
   // Finn brukerens siste spørsmål
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content;
 
+  // === LAGRING AV SAMTALE/MELDINGER ===
+  let conversationId = clientConversationId;
+  let conversation;
+  if (!conversationId) {
+    // Opprett ny samtale hvis ikke id er sendt inn
+    conversation = await prisma.conversation.create({
+      data: {
+        title: lastUserMsg?.slice(0, 40) || 'Ny samtale',
+        ...(userEmail ? { user: { connect: { email: userEmail } } } : {}),
+      },
+    });
+    conversationId = conversation.id;
+  } else {
+    conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+  }
+
+  // Lagre alle meldinger som ikke allerede finnes (enkel logikk: lagre alle for demo)
+  if (conversationId) {
+    for (const m of messages) {
+      // Sjekk om meldingen allerede finnes (unik per samtale, rolle og innhold)
+      const exists = await prisma.message.findFirst({
+        where: {
+          conversationId,
+          role: m.role,
+          content: m.content,
+        },
+      });
+      if (!exists) {
+        await prisma.message.create({
+          data: {
+            conversation: { connect: { id: conversationId } },
+            role: m.role,
+            content: m.content,
+            // Bare knytt bruker til 'user'-meldinger
+            ...(userEmail && m.role === 'user' ? { user: { connect: { email: userEmail } } } : {}),
+          },
+        });
+      }
+    }
+  }
+
+  // === RESTEN AV LOGIKKEN (AI, ARTIKLER, STREAM) ===
   let pineconeMatches: any[] = [];
   let pineconeContext: any[] = [];
   let sanityPromise: Promise<any[]> | undefined = undefined;
@@ -74,6 +125,8 @@ export async function POST(req: NextRequest) {
         sanityArticles = await sanityPromise;
         controller.enqueue(encoder.encode(`event: articles\ndata: ${JSON.stringify(sanityArticles)}\n\n`));
       }
+      // Send conversationId til frontend
+      controller.enqueue(encoder.encode(`event: conversationId\ndata: ${JSON.stringify(conversationId)}\n\n`));
       controller.close();
     }
   });

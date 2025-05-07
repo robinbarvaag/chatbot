@@ -1,0 +1,38 @@
+import { cookies } from "next/headers"
+
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { AppSidebar } from "@/components/ui/app-sidebar"
+import { SiteHeader } from "@/components/ui/site-header"
+import { getServerSession } from "@/lib/get-server-session"
+import { ConversationProvider } from "@/components/conversation-provider"
+
+export default async function AppLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  const cookieStore = await cookies()
+  const defaultOpen = cookieStore.get("sidebar_state")?.value === "true"
+
+  const session = await getServerSession()
+
+
+
+  return (
+    <ConversationProvider>
+    <SidebarProvider defaultOpen={defaultOpen}>
+        <AppSidebar variant="inset" user={session?.user ?? null}/>
+        <SidebarInset>
+        <SiteHeader />
+        <div className="flex flex-1 flex-col">
+            <div className="@container/main flex flex-1 flex-col gap-2">
+            <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+                {children}
+            </div>
+            </div>
+        </div>
+        </SidebarInset>
+    </SidebarProvider>
+    </ConversationProvider>
+  )
+}
