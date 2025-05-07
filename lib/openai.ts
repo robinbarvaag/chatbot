@@ -49,6 +49,7 @@ export async function chatWithOpenAI(messages: { role: string, content: string }
   // Konverter meldinger til riktig format
   const formattedMessages = [
     { role: 'system', content: 'Du er en hjelpsom chatbot for en nettside.' } as const,
+    { role: 'system', content: 'Du har tilgang til en rekke tools for å hjelpe brukeren med å finne informasjon.' } as const,
     ...messages.map(m => {
       if (m.role === 'user') {
         return { role: 'user', content: m.content } as const;
@@ -123,6 +124,8 @@ export async function chatWithOpenAI(messages: { role: string, content: string }
   });
 
   const initialMessage = initialResponse.choices[0].message;
+
+  console.log("initialMessage", initialMessage)
 
   // 2. Hvis OpenAI vil kalle funksjonen vår
   if (initialMessage.tool_calls && initialMessage.tool_calls.length > 0) {

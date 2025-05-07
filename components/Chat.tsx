@@ -86,7 +86,6 @@ export default function Chat() {
                     <div className="font-semibold text-xs text-gray-600 mb-1">Relevante artikler brukt i svaret:</div>
                     <ul className="space-y-2">
                       {msg.articles.map((a: any) => {
-                        console.log("article", a)
                         const score = typeof a.score === 'number' ? a.score : (typeof a.metadata?.score === 'number' ? a.metadata.score : undefined);
                         return (
                           <li key={a._id} className="border-b last:border-b-0 pb-2 last:pb-0">

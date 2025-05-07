@@ -23,7 +23,7 @@ export async function queryPinecone(embedding: number[], topK: number = 5) {
     });
   }
   // Filtrer ut matches med lav relevans (score < 0.75)
-  matches = matches.filter((m: any) => (typeof m.score === 'number' ? m.score >= 0.85 : true));
+  matches = matches.filter((m: any) => (typeof m.score === 'number' ? m.score >= 0.8 : true));
   // Legg score inn i metadata hvis ikke allerede
   matches = matches.map((m: any) => ({ ...m, metadata: { ...m.metadata, score: m.score } }));
   return matches;

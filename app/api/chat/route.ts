@@ -2,61 +2,77 @@ import { NextRequest } from 'next/server';
 import { chatWithOpenAI, getEmbedding } from '../../../lib/openai';
 import { queryPinecone } from '../../../lib/pinecone';
 import { sanityClient } from '../../../sanity/client';
-import { fetchSanityContent } from '../../../lib/sanity';
 
 export async function POST(req: NextRequest) {
   const { messages } = await req.json();
   // Finn brukerens siste spørsmål
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content;
 
-  let contextArticles = [];
+  let pineconeMatches: any[] = [];
+  let pineconeContext: any[] = [];
+  let sanityPromise: Promise<any[]> | undefined = undefined;
+
   if (lastUserMsg) {
     // 1. Lag embedding av brukerens spørsmål
     const embedding = await getEmbedding(lastUserMsg);
     // 2. Søk i Pinecone etter relevante artikler
-    const matches = await queryPinecone(embedding, 3);
-    // 3. Hent artikler fra Sanity basert på _id fra Pinecone
-    const ids = matches.map((m: any) => m.id);
+    pineconeMatches = await queryPinecone(embedding, 3);
+    // 3. Bygg kontekst til OpenAI av Pinecone-treff (bruk metadata/tittel/body hvis mulig)
+    pineconeContext = pineconeMatches.map(m => ({ title: m.metadata?.title, body: m.metadata?.body || '' }));
+    // 4. Start henting av artikler fra Sanity parallelt
+    const ids = pineconeMatches.map((m: any) => m.id);
     if (ids.length > 0) {
-      const sanityArticles = await sanityClient.fetch(
+      sanityPromise = sanityClient.fetch(
         `*[_type == "article" && _id in $ids]{_id, title, body}`,
         { ids }
+      ).then((sanityArticles: any[]) =>
+        sanityArticles.map((a: any) => {
+          const match = pineconeMatches.find((m: any) => m.id === a._id);
+          return {
+            ...a,
+            score: match?.score,
+            metadata: match?.metadata,
+          };
+        })
       );
-      // Koble sammen Sanity-artikler og Pinecone-score/metadata
-      contextArticles = sanityArticles.map((a: any) => {
-        const match = matches.find((m: any) => m.id === a._id);
-        return {
-          ...a,
-          score: match?.score,
-          metadata: match?.metadata,
-        };
-      });
     }
   }
-  // 4. Send artiklene som kontekst til OpenAI-chatten
-  // Nå: Stream svaret fra OpenAI og send artikler først som SSE
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      // Send artikler først
-      controller.enqueue(encoder.encode(`event: articles\ndata: ${JSON.stringify(contextArticles)}\n\n`));
-
-      // Bygg systemprompt
-      const formattedMessages = [
-        { role: 'system', content: 'Du er en hjelpsom chatbot for en nettside.' + (contextArticles.length ? '\nHer er relevante artikler:\n' + contextArticles.map(a => `Tittel: ${a.title}\n${a.body}`).join('\n---\n') : '') },
-        ...messages.map((m: any) => ({ role: m.role, content: m.content }))
-      ];
-      // Start OpenAI-stream
-      const openaiRes = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: formattedMessages,
-        stream: true,
-      });
-      for await (const chunk of openaiRes) {
-        const content = chunk.choices?.[0]?.delta?.content;
-        if (content) {
-          controller.enqueue(encoder.encode(`event: content\ndata: ${JSON.stringify(content)}\n\n`));
+      // Start parallell henting av artikler fra Sanity
+      let sanitySent = false;
+      let sanityArticles: any[] = [];
+      if (sanityPromise) {
+        sanityPromise.then((arts) => {
+          sanityArticles = arts;
+          controller.enqueue(encoder.encode(`event: articles\ndata: ${JSON.stringify(sanityArticles)}\n\n`));
+          sanitySent = true;
+        });
+      }
+      // Bruk chatWithOpenAI for streaming og tools, send pineconeArticles som cmsData
+      const pineconeArticles = pineconeMatches.map(m => ({
+        _id: m.id,
+        title: m.metadata?.title,
+        body: m.metadata?.body || '',
+        score: m.score
+      }));
+      const openaiStream = await chatWithOpenAI(messages, pineconeArticles);
+      const reader = openaiStream.getReader();
+      let done = false;
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        done = streamDone;
+        if (value) {
+          // Vi må wrappe content som SSE-event
+          controller.enqueue(encoder.encode(`event: content\ndata: ${JSON.stringify(new TextDecoder().decode(value))}\n\n`));
         }
+      }
+      // Hvis artikler ikke har blitt sendt enda (f.eks. hvis OpenAI er raskere enn Sanity)
+      if (sanityPromise && !sanitySent) {
+        sanityArticles = await sanityPromise;
+        controller.enqueue(encoder.encode(`event: articles\ndata: ${JSON.stringify(sanityArticles)}\n\n`));
       }
       controller.close();
     }
@@ -69,19 +85,3 @@ export async function POST(req: NextRequest) {
     },
   });
 }
-
-// Hjelpefunksjon for å hente hele svaret fra OpenAI (ikke stream)
-import { OpenAI } from 'openai';
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-async function getOpenAIAnswer(messages: any[], contextArticles: any[]) {
-  const formattedMessages = [
-    { role: 'system', content: 'Du er en hjelpsom chatbot for en nettside.' + (contextArticles.length ? '\nHer er relevante artikler:\n' + contextArticles.map(a => `Tittel: ${a.title}\n${a.body}`).join('\n---\n') : '') },
-    ...messages.map(m => ({ role: m.role, content: m.content }))
-  ];
-  const response = await openai.chat.completions.create({
-    model: 'gpt-3.5-turbo',
-    messages: formattedMessages
-  });
-  return response.choices[0].message.content;
-}
-
