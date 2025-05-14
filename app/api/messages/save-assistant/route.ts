@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../auth/[...nextauth]/route';
+import { auth } from '@/app/(auth)/auth';
 
 // POST /api/messages/save-assistant
 export async function POST(req: NextRequest) {
@@ -9,7 +8,7 @@ export async function POST(req: NextRequest) {
   if (!conversationId || !content) {
     return NextResponse.json({ error: 'conversationId og content må sendes' }, { status: 400 });
   }
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json({ error: 'Ikke innlogget' }, { status: 401 });
   }

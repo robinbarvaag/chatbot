@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/app/(auth)/auth";
 
 export async function GET(req: Request) {
   // Hent innlogget bruker (forutsetter NextAuth)
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Ikke innlogget" }, { status: 401 });
   }
@@ -24,7 +23,7 @@ export async function GET(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Ikke innlogget" }, { status: 401 });
   }

@@ -3,7 +3,6 @@
 import {
   BellIcon,
   CreditCardIcon,
-  LogOutIcon,
   MoreVerticalIcon,
   UserCircleIcon,
 } from "lucide-react"
@@ -28,16 +27,18 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { Button } from "./button"
+
 
 export function NavUser({
   user,
+  signOutSlot,
 }: {
   user: {
     name: string
     email: string
     avatar: string
   }
+  signOutSlot: React.ReactNode
 }) {
   const { isMobile } = useSidebar()
 
@@ -112,9 +113,7 @@ export function NavUser({
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem>
-              <form action="/api/auth/signout" method="post">
-                <Button variant="ghost" type="submit"> <LogOutIcon />Logg ut</Button>
-              </form>
+              {signOutSlot}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

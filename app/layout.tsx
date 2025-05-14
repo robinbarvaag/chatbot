@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { cn } from "@/lib/utils";
 import { fontVariables } from "@/lib/fonts"
 import { Toaster } from "@/components/ui/sonner";
+import { SessionProvider } from 'next-auth/react';
 
 const META_THEME_COLORS = {
   light: "#ffffff",
@@ -43,7 +44,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           disableTransitionOnChange
           enableColorScheme>
           <ActiveThemeProvider initialTheme={activeThemeValue} >
-           {children}
+           <SessionProvider>{children}</SessionProvider>
            <Toaster />
           </ActiveThemeProvider>
         </ThemeProvider>

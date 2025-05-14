@@ -157,7 +157,7 @@ export const ConversationContext = createContext<{
   setConversationId: (id: string | null) => void;
 }>({ conversationId: null, setConversationId: () => {} });
 
-export function AppSidebar({ user, ...props }: React.ComponentProps<typeof Sidebar> & { user?: { name?: string|null, email?: string|null, image?: string|null } | null }) {
+export function AppSidebar({ user,  signOutSlot, ...props }: React.ComponentProps<typeof Sidebar> & { user?: { name?: string|null, email?: string|null, image?: string|null } | null, signOutSlot?: React.ReactNode }) {
   const { setConversationId } = useContext(ConversationContext);
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -184,7 +184,7 @@ export function AppSidebar({ user, ...props }: React.ComponentProps<typeof Sideb
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
-      <NavUser user={{name: user?.name ?? "",email: user?.email ?? "",avatar: user?.image ?? ""}} />
+      <NavUser user={{name: user?.name ?? "",email: user?.email ?? "",avatar: user?.image ?? ""}} signOutSlot={signOutSlot}/>
       </SidebarFooter>
     </Sidebar>
   )

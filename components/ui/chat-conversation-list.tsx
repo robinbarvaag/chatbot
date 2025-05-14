@@ -33,7 +33,7 @@ export function ChatConversationList({ onSelectConversation }: {
     return <div className="p-4 text-muted-foreground">Laster samtaler...</div>;
   }
   if (error) {
-    return <div className="p-4 rounded-md bg-destructive text-destructive-foreground">{error}</div>;
+    return <div className="p-4 rounded-md bg-destructive text-destructive-foreground mt-8">{error}</div>;
   }
   if (conversations.length === 0) {
     return <div className="p-4 text-muted-foreground">Ingen samtaler funnet.</div>;

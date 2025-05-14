@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { SignOutForm } from "@/components/sign-out-form";
 
 export default function Header({ user }: { user?: { name?: string|null, image?: string|null } }) {
   return (
@@ -14,9 +15,7 @@ export default function Header({ user }: { user?: { name?: string|null, image?: 
           {user ? (
             <>
               <span className="text-sm text-muted-foreground">{user.name}</span>
-              <form action="/api/auth/signout" method="post">
-                <Button variant="outline" type="submit">Logg ut</Button>
-              </form>
+              <SignOutForm />
             </>
           ) : (
             <>

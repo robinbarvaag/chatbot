@@ -1,8 +1,6 @@
-// Prisma schema for NextAuth with SQLite
-// Docs: https://next-auth.js.org/adapters/prisma
-
 generator client {
   provider = "prisma-client-js"
+  output = "../generated/prisma-client"
 }
 
 datasource db {

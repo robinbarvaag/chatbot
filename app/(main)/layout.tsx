@@ -3,8 +3,9 @@ import { cookies } from "next/headers"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/ui/app-sidebar"
 import { SiteHeader } from "@/components/ui/site-header"
-import { getServerSession } from "@/lib/get-server-session"
 import { ConversationProvider } from "@/components/conversation-provider"
+import { auth } from "../(auth)/auth"
+import { SignOutForm } from "@/components/sign-out-form"
 
 export default async function AppLayout({
   children,
@@ -14,14 +15,12 @@ export default async function AppLayout({
   const cookieStore = await cookies()
   const defaultOpen = cookieStore.get("sidebar_state")?.value === "true"
 
-  const session = await getServerSession()
-
-
+  const session = await auth();
 
   return (
     <ConversationProvider>
     <SidebarProvider defaultOpen={defaultOpen}>
-        <AppSidebar variant="inset" user={session?.user ?? null}/>
+        <AppSidebar variant="inset" user={session?.user ?? null} signOutSlot={<SignOutForm />} />
         <SidebarInset>
         <SiteHeader />
         <div className="flex flex-1 flex-col">
