@@ -4,121 +4,129 @@ import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import { AIResponse } from '@/components/ui/kibo-ui/ai/response';
 
-import { useContext, useEffect } from 'react';
-import { ConversationContext } from '@/components/ui/app-sidebar';
+import { useEffect } from 'react';
 
-export default function Chat() {
+interface ChatProps {
+  conversationId: string;
+}
+
+export default function Chat({ conversationId }: ChatProps) {
   type ChatMessage = { role: 'user' | 'assistant' | 'system', content: string, articles?: any[] };
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }
   ]);
   const [loading, setLoading] = useState(false);
-  const { conversationId, setConversationId } = useContext(ConversationContext);
-
-  // Hent meldinger når conversationId endres
-  useEffect(() => {
-    if (conversationId) {
-      setLoading(true);
-      fetch(`/api/messages?conversationId=${conversationId}`)
-        .then(res => res.ok ? res.json() : [])
-        .then(msgs => setMessages(msgs.length ? msgs : [{ role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }]))
-        .finally(() => setLoading(false));
-    } else {
-      setMessages([{ role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }]);
+  // Hent meldinger eksplisitt når komponenten mountes eller conversationId endres
+  async function fetchMessages(convId: string) {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/messages?conversationId=${convId}`);
+      const msgs = res.ok ? await res.json() : [];
+      setMessages(msgs.length ? msgs : [{ role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }]);
+    } finally {
+      setLoading(false);
     }
+  }
+
+  // Hent meldinger første gang og når conversationId endres (kalles eksplisitt)
+  useEffect(() => {
+    if (conversationId) fetchMessages(conversationId);
+    else setMessages([{ role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
   async function sendMessage(message: string) {
+    // Optimistisk UI: legg til brukerens melding i state
     setMessages(msgs => [...msgs, { role: 'user', content: message }]);
     setLoading(true);
-    const newMessages = [...messages, { role: 'user', content: message }];
-
-    // Start streaming
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: newMessages, conversationId })
-    });
-    if (!res.body) {
-      setMessages(msgs => [...msgs, { role: 'assistant', content: 'Ingen svar fra AI.' }]);
-      setLoading(false);
-      return;
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let done = false;
     let aiContent = '';
     let articles: any[] | undefined = undefined;
     let assistantMsgIdx: number | undefined = undefined;
-    // Sett placeholder for AI-melding
-    setMessages(msgs => {
-      assistantMsgIdx = msgs.length;
-      return [...msgs, { role: 'assistant', content: '' }];
-    });
     let newConvIdLocal: string | null = null;
-    while (!done) {
-      const { value, done: doneReading } = await reader.read();
-      done = doneReading;
-      if (value) {
-        const chunk = decoder.decode(value);
-        // SSE: flere events kan komme i samme chunk, så splitt på dobbel newline
-        const events = chunk.split(/\n\n+/);
-        for (const eventStr of events) {
-          if (!eventStr.trim()) continue;
-          const [eventLine, ...dataLines] = eventStr.split('\n');
-          const eventType = eventLine.replace('event: ', '').trim();
-          const dataRaw = dataLines.map(l => l.replace(/^data: /, '')).join('\n');
-          if (eventType === 'articles') {
-            try { articles = JSON.parse(dataRaw); } catch {}
-            // Legg til artikler på AI-meldingen
-            setMessages(msgs => msgs.map((m, i) =>
-              i === assistantMsgIdx ? { ...m, articles } : m
-            ));
-          } else if (eventType === 'content') {
-            let content = '';
-            try { content = JSON.parse(dataRaw); } catch { content = dataRaw; }
-            aiContent += content;
-            setMessages(msgs => msgs.map((m, i) =>
-              i === assistantMsgIdx ? { ...m, content: aiContent } : m
-            ));
-          } else if (eventType === 'conversationId') {
-            try {
-              const newConvId = JSON.parse(dataRaw);
-              if (newConvId && newConvId !== conversationId) setConversationId(newConvId);
-              newConvIdLocal = newConvId;
-            } catch {}
+    try {
+      // Send kun siste melding og conversationId til backend
+      console.log('sendMessage', message, conversationId);
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, conversationId })
+      });
+      // Lytt etter event: conversationId fra SSE og oppdater URL hvis ny samtale
+      if (typeof window !== 'undefined') {
+        const { useRouter } = await import('next/navigation');
+        const router = useRouter();
+        const eventSource = new EventSource('/api/chat-stream'); // juster til din SSE-endpoint om nødvendig
+        eventSource.addEventListener('conversationId', (event) => {
+          const newConvId = JSON.parse(event.data);
+          if (newConvId && newConvId !== conversationId) {
+            router.replace(`/chat/${newConvId}`);
+          }
+        });
+      }
+      if (!res.body) {
+        setMessages(msgs => [...msgs, { role: 'assistant', content: 'Ingen svar fra AI.' }]);
+        setLoading(false);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      // Sett placeholder for AI-melding
+      setMessages(msgs => {
+        assistantMsgIdx = msgs.length;
+        return [...msgs, { role: 'assistant', content: '' }];
+      });
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        if (value) {
+          const chunk = decoder.decode(value);
+          const events = chunk.split(/\n\n+/);
+          for (const eventStr of events) {
+            if (!eventStr.trim()) continue;
+            const [eventLine, ...dataLines] = eventStr.split('\n');
+            const eventType = eventLine.replace('event: ', '').trim();
+            const dataRaw = dataLines.map(l => l.replace(/^data: /, '')).join('\n');
+            if (eventType === 'articles') {
+              try { articles = JSON.parse(dataRaw); } catch {}
+              setMessages(msgs => msgs.map((m, i) =>
+                i === assistantMsgIdx ? { ...m, articles } : m
+              ));
+            } else if (eventType === 'content') {
+              let content = '';
+              try { content = JSON.parse(dataRaw); } catch { content = dataRaw; }
+              aiContent += content;
+              setMessages(msgs => msgs.map((m, i) =>
+                i === assistantMsgIdx ? { ...m, content: aiContent } : m
+              ));
+            } else if (eventType === 'conversationId') {
+              try {
+                const newConvId = JSON.parse(dataRaw);
+                if (newConvId && newConvId !== conversationId) {
+                  // Oppdater kun dersom backend gir ny samtale-ID (første melding)
+                  newConvIdLocal = newConvId;
+                }
+              } catch {}
+            }
           }
         }
       }
-    }
-
-    console.log("conversationId", conversationId)
-    console.log("aiContent", aiContent)
-    // Etter at hele AI-svaret er ferdig, lagre det i databasen
-    const convIdToSave = newConvIdLocal || conversationId;
-    console.log("conversationId brukt for lagring:", convIdToSave);
-    if (convIdToSave && aiContent.trim()) {
-      console.log("PRØVER Å LAGRE AI-SVAR", { conversationId: convIdToSave, aiContent });
-      try {
-        const saveRes = await fetch('/api/messages/save-assistant', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId: convIdToSave, content: aiContent })
-        });
-        const saveResJson = await saveRes.json();
-        console.log("RESULTAT FRA LAGRING", saveRes.status, saveResJson);
-      } catch (err) {
-        console.error("FEIL VED LAGRING AV AI-SVAR", err);
-      }
-      // Hent meldinger på nytt fra backend for å sikre at frontend og database er synkronisert
-      // const res = await fetch(`/api/messages?conversationId=${convIdToSave}`);
-      // if (res.ok) {
-      //   const msgs = await res.json();
-      //   setMessages(msgs.length ? msgs : [{ role: 'system', content: 'Hei! Hvordan kan jeg hjelpe deg?' }]);
+      // Etter at hele AI-svaret er ferdig, lagre det i databasen (kan evt. gjøres kun på backend)
+      // const convIdToSave = newConvIdLocal || conversationId;
+      // if (convIdToSave && aiContent.trim()) {
+      //   try {
+      //     await fetch('/api/messages/save-assistant', {
+      //       method: 'POST',
+      //       headers: { 'Content-Type': 'application/json' },
+      //       body: JSON.stringify({ conversationId: convIdToSave, content: aiContent })
+      //     });
+      //   } catch (err) {
+      //     // Håndter feil om ønskelig
+      //   }
       // }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
 

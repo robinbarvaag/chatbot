@@ -23,6 +23,15 @@ export default function ChatInput({ onSend, disabled }: { onSend: (msg: string) 
         minHeight={48}
         maxHeight={120}
         autoFocus
+        onKeyDown={e => {
+          if (e.key === 'Enter' && !e.shiftKey && !disabled) {
+            e.preventDefault();
+            if (input.trim()) {
+              onSend(input);
+              setInput('');
+            }
+          }
+        }}
       />
       <div className="flex justify-end p-2">
         <AIInputSubmit disabled={disabled || !input.trim()} >

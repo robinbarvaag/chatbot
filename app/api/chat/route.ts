@@ -34,34 +34,34 @@ const embeddingCache = new Map<string, number[]>();
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { messages, conversationId: clientConversationId } = body;
+    const { message, conversationId: clientConversationId } = body;
 
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return NextResponse.json({ error: 'Ingen meldinger ble gitt' }, { status: 400 });
+    console.log('message', message);
+
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return NextResponse.json({ error: 'Ingen melding ble gitt' }, { status: 400 });
     }
 
     const session = await auth();
     const userEmail = session?.user?.email;
 
-    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content || '';
-
+    // Opprett eller hent samtale
     const { conversationId } = await handleConversation(
       clientConversationId, 
-      lastUserMsg, 
+      message, 
       userEmail
     );
 
-    await saveMessages(messages, conversationId, userEmail);
+    // Lagre meldingen (brukerens melding)
+    await saveMessages([
+      { role: 'user', content: message }
+    ], conversationId, userEmail);
 
-    const [pineconeData] = await Promise.all([
-      getPineconeMatches(lastUserMsg),
-    ]);
-
+    // Start streaming AI-svar og hent artikler parallelt
     return streamResponse(
-      messages, 
-      pineconeData.matches, 
-      pineconeData.sanityPromise, 
-      conversationId
+      [ { role: 'user', content: message } ],
+      conversationId,
+      message // send med som query til pinecone
     );
   } catch (error) {
     console.error('Error in chat endpoint:', error);
@@ -219,78 +219,68 @@ async function getPineconeMatches(query: string): Promise<{
  */
 function streamResponse(
   messages: Message[],
-  pineconeMatches: PineconeMatch[],
-  sanityPromise: Promise<SanityArticle[]> | undefined,
-  conversationId: string
+  conversationId: string,
+  pineconeQuery: string
 ) {
   const encoder = new TextEncoder();
-  
+
   const stream = new ReadableStream({
     async start(controller) {
-      // Lag en timeout for å sikre at vi ikke henger
       const timeout = setTimeout(() => {
         controller.enqueue(encoder.encode(`event: error\ndata: {"message": "Tidsavbrudd ved henting av data"}\n\n`));
         controller.close();
-      }, 30000); // 30 sekunder timeout
-      
+      }, 30000);
+      let aiDone = false;
+      let articlesDone = false;
       try {
-        let sanitySent = false;
-        let sanityArticles: SanityArticle[] = [];
-        
-        // Håndter Sanity-data hvis tilgjengelig
-        if (sanityPromise) {
-          sanityPromise.then((arts) => {
-            sanityArticles = arts;
-            controller.enqueue(encoder.encode(`event: articles\ndata: ${JSON.stringify(sanityArticles)}\n\n`));
-            sanitySent = true;
-          }).catch(error => {
-            console.error('Error processing Sanity data:', error);
-          });
-        }
-        
-        // Konverter Pinecone-dataene til artikkelformat
-        const pineconeArticles = pineconeMatches.map(m => ({
-          _id: m.id,
-          title: m.metadata?.title,
-          body: m.metadata?.body || '',
-          score: m.score
-        }));
-        
-        // Stream fra OpenAI
-        try {
-          const openaiStream = await chatWithOpenAI(messages, pineconeArticles);
-          const reader = openaiStream.getReader();
-          
-          let done = false;
-          while (!done) {
-            const { value, done: streamDone } = await reader.read();
-            done = streamDone;
-            
-            if (value) {
-              controller.enqueue(encoder.encode(`event: content\ndata: ${JSON.stringify(new TextDecoder().decode(value))}\n\n`));
+        // Send samtale-ID først
+        controller.enqueue(encoder.encode(`event: conversationId\ndata: ${JSON.stringify(conversationId)}\n\n`));
+
+        // Start AI-stream parallelt
+        const aiStreamPromise = (async () => {
+          if (typeof chatWithOpenAI === 'function') {
+            // Start AI-streamen umiddelbart uten pineconeMatches
+           const aiStream = await chatWithOpenAI(messages);
+            const reader = aiStream.getReader();
+            let doneReading = false;
+            const textDecoder = new TextDecoder();
+            while (!doneReading) {
+              const { value, done } = await reader.read();
+              doneReading = done;
+              if (value) {
+                controller.enqueue(encoder.encode(`event: content\ndata: ${JSON.stringify(textDecoder.decode(value))}\n\n`));
+              }
             }
           }
-        } catch (error) {
-          console.error('Error streaming from OpenAI:', error);
-          controller.enqueue(encoder.encode(`event: error\ndata: {"message": "Feil ved kommunikasjon med AI-tjenesten"}\n\n`));
-        }
-        
-        // Send Sanity-artikler hvis de ikke allerede er sendt
-        if (sanityPromise && !sanitySent) {
+          aiDone = true;
+          if (articlesDone) {
+            clearTimeout(timeout);
+            controller.close();
+          }
+        })();
+
+        // Hent pinecone/sanity parallelt og send artikler-event når de er klare
+        const articlesPromise = (async () => {
           try {
-            sanityArticles = await sanityPromise;
-            controller.enqueue(encoder.encode(`event: articles\ndata: ${JSON.stringify(sanityArticles)}\n\n`));
+            const pineconeData = await getPineconeMatches(pineconeQuery);
+            if (pineconeData.sanityPromise) {
+              const arts = await pineconeData.sanityPromise;
+              controller.enqueue(encoder.encode(`event: articles\ndata: ${JSON.stringify(arts)}\n\n`));
+            }
           } catch (error) {
             console.error('Error waiting for Sanity data:', error);
           }
-        }
-        
-        // Send samtale-ID
-        controller.enqueue(encoder.encode(`event: conversationId\ndata: ${JSON.stringify(conversationId)}\n\n`));
+          articlesDone = true;
+          if (aiDone) {
+            clearTimeout(timeout);
+            controller.close();
+          }
+        })();
+
+        await Promise.all([aiStreamPromise, articlesPromise]);
       } catch (error) {
         console.error('Stream processing error:', error);
         controller.enqueue(encoder.encode(`event: error\ndata: {"message": "En feil oppstod under prosessering"}\n\n`));
-      } finally {
         clearTimeout(timeout);
         controller.close();
       }

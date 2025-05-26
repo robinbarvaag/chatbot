@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { MessageSquare } from "lucide-react";
+import Link from "next/link";
 
 export type Conversation = {
   id: string;
@@ -56,31 +57,27 @@ export function ChatConversationList({ onSelectConversation }: {
     }
   }
 
-  return (
+  return (  
     <ul className="flex flex-col gap-2">
       {conversations.map((conv) => (
-        <li
-          key={conv.id}
-          className="group relative flex items-center gap-2 px-2 py-1 rounded-md border bg-card hover:bg-accent transition-colors cursor-pointer"
-        >
-          <button
-            className="flex-1 flex items-center gap-2 text-left focus:outline-none min-w-0"
-            onClick={() => onSelectConversation?.(conv.id)}
-          >
-            <Avatar className="h-7 w-7">
-              <AvatarFallback className="bg-muted text-foreground text-xs">
-                {conv.title?.[0]?.toUpperCase() ?? "S"}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-foreground line-clamp-1 leading-tight">{conv.title || "(Uten tittel)"}</div>
-              <div className="text-[10px] text-muted-foreground line-clamp-1 leading-tight">
-                {new Date(conv.createdAt).toLocaleString()}
+        <li key={conv.id}>
+          <Link href={`/chat/${conv.id}`}>
+              <div className="group relative flex items-center gap-2 px-2 py-1 rounded-md border bg-card hover:bg-accent transition-colors cursor-pointer">
+                <Avatar className="h-7 w-7">
+                  <AvatarFallback className="bg-muted text-foreground text-xs">
+                    {conv.title?.[0]?.toUpperCase() ?? "S"}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-foreground line-clamp-1 leading-tight">{conv.title || "(Uten tittel)"}</div>
+                  <div className="text-[10px] text-muted-foreground line-clamp-1 leading-tight">
+                    {new Date(conv.createdAt).toLocaleString()}
+                  </div>
+                </div>
+                <MessageSquare size={16} className="flex-shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
-            </div>
-            <MessageSquare size={16} className="flex-shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
-          </button>
-          <button
+            </Link>
+            <button
             title="Slett samtale"
             className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity z-10"
             onClick={e => handleDeleteConversation(e, conv.id)}
